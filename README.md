@@ -25,8 +25,10 @@ Basics:
 ```js
 import Stream from 'xstream';
 import fetch from 'isomorphic-fetch';
-import Cycle from '@cycle/run';
+import { run } from '@cycle/run';
 import FetchDriver from '@gastonyte/cycle-fetch-driver';
+
+
 
 const main = ({ HTTP }) => {
 
@@ -39,91 +41,57 @@ const main = ({ HTTP }) => {
       { key: 'anotherKey', input: { url: 'http://localhost:3000/api' } }
     )
   };
-}
+};
 
-Cycle.run(main, {
+run(main, {
   HTTP: FetchDriver({
-    fetch,     
+    fetch,
     credentials: 'same-origin'
-    // ...otherDefaultFetchOptions 
+    // ...otherDefaultFetchOptions
   })
 });
 ```
 
-Simple and normal use case:
+Select all the responses by key or by url:
 
 ```js
 import Stream from 'xstream';
-import Cycle from '@cycle/run';
+import { run } from '@cycle/run';
 import FetchDriver from '@gastonyte/cycle-fetch-driver';
-import flattenConcurrently from 'xstream/extra/flattenConcurrently';
-import {div, h1, makeDOMDriver} from '@cycle/dom';
+import fetch from 'isomorphic-fetch';
 
 const main = ({ HTTP }) => {
-  
-  const HELLO_URL = 'http://localhost:8080/hello';
-  const request$ = Stream.of(HELLO_URL);
-  
-  const vtree$ = HTTP.filterByUrl(HELLO_URL)
-    .compose(flattenConcurrently)
-    .map(response => response.text())
-    .flatten()
-    .startWith('Loading...')
-    .map(text =>
-      div('.container', [
-        h1(text)
-      ])
-    );
 
-  return {
-    DOM: vtree$,
-    HTTP: request$
-  };
-}
-
-Cycle.run(main, {
-  DOM: makeDOMDriver('#app'),
-  HTTP: FetchDriver()
-});
-
-```
-
-Select all the responses for a certain key:
-
-```js
-import Stream from 'xstream';
-import Cycle from '@cycle/run';
-import FetchDriver from '@gastonyte/cycle-fetch-driver';
-import flattenConcurrently from 'xstream/extra/flattenConcurrently';
-import {div, h1, makeDOMDriver} from '@cycle/dom';
-
-const main = ({ HTTP }) => {
-  
-  const HELLO_URL = 'http://localhost:8080/hello';
+  const HELLO_URL = 'https://jsonplaceholder.typicode.com/posts/1';
   const request$ = Stream.of({
     key: 'hello',
     url: HELLO_URL
   });
-  
-  const vtree$ = HTTP.filterByKey('hello')
-    .compose(flattenConcurrently)
-    .map(res => res.text())
+
+  HTTP.filterByKey('hello') // OR .filterByUrl(HELLO_URL)
     .flatten()
-    .startWith('Loading...')
-    .map(text =>
-      div('.container', [
-        h1(text)
-      ])
-    );
+    .map(response => Stream.fromPromise(response.json()))
+    .flatten()
+    .map(json => ({ isLoaded: true, json }))
+    .startWith({ isLoaded: false })
+    .addListener({
+      next: ({ isLoaded, json }) => {
+        console.log('isLoaded:', isLoaded);
+
+        if (isLoaded) {
+          console.log('json:', json);
+        }
+      }
+    });
 
   return {
-    DOM: vtree$,
     HTTP: request$
   };
 };
 
-Cycle.run(main, {
-  DOM: makeDOMDriver('#app'),
-  HTTP: FetchDriver()
+run(main, {
+  HTTP: FetchDriver({
+    fetch
+  })
 });
 ```
