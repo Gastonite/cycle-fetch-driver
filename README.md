@@ -5,49 +5,73 @@ A [Cycle.js](http://cycle.js.org) [Driver](http://cycle.js.org/drivers.html) for
 ## Install
 
 ```sh
-npm install @cycle/fetch
+npm install @gastonyte/cycle-fetch-driver
 ```
 
 ## API
 
-### ```makeFetchDriver(scheduler: Scheduler) -> fetchDriver: function```
+### ```FetchDriver({ fetch, ...fetchDefaultOptions }) -> fetchDriver: function```
 
-Factory that returns a fetch driver. It takes an optional ```scheduler``` argument to pass into ```fromPromise```.
+Factory that returns a fetch driver. 
+
+It can take an optional ```fetch``` option which allow inversion of control. (defaults to global.fetch)
+
+All other options provided are considered fetch default options.
 
 ## Usage
 
 Basics:
 
 ```js
-import 'whatwg-fetch' // polyfill if you want to support older browsers
-import Cycle from '@cycle/core';
-import { makeFetchDriver } from '@cycle/fetch';
+import Stream from 'xstream';
+import fetch from 'isomorphic-fetch';
+import Cycle from '@cycle/run';
+import FetchDriver from '@gastonyte/cycle-fetch-driver';
 
-function main(responses) {
-  // ...
+const main = ({ HTTP }) => {
+
+  HTTP.filterByKey('anotherKey').debug('response').addListener(response$ => response$);
+
+  return {
+    HTTP: Stream.of(
+      'http://localhost:3000/api',
+      { key: 'oneKey', url: 'http://localhost:3000/api', options: { /* ...overrideFetchOptions */ } },
+      { key: 'anotherKey', input: { url: 'http://localhost:3000/api' } }
+    )
+  };
 }
 
-const drivers = {
-  HTTP: makeFetchDriver()
-}
-
-Cycle.run(main, drivers);
+Cycle.run(main, {
+  HTTP: FetchDriver({
+    fetch,     
+    credentials: 'same-origin'
+    // ...otherDefaultFetchOptions 
+  })
+});
 ```
 
 Simple and normal use case:
 
 ```js
-function main({ DOM, HTTP }) {
+import Stream from 'xstream';
+import Cycle from '@cycle/run';
+import FetchDriver from '@gastonyte/cycle-fetch-driver';
+import flattenConcurrently from 'xstream/extra/flattenConcurrently';
+import {div, h1, makeDOMDriver} from '@cycle/dom';
+
+const main = ({ HTTP }) => {
+  
   const HELLO_URL = 'http://localhost:8080/hello';
-  const request$ = Rx.Observable.just(HELLO_URL);
-  const vtree$ = HTTP
-    .byUrl(HELLO_URL)
-    .mergeAll()
-    .flatMap(res => res.text()) // We expect this to be "Hello World"
+  const request$ = Stream.of(HELLO_URL);
+  
+  const vtree$ = HTTP.filterByUrl(HELLO_URL)
+    .compose(flattenConcurrently)
+    .map(response => response.text())
+    .flatten()
     .startWith('Loading...')
     .map(text =>
-      h('div.container', [
-        h('h1', text)
+      div('.container', [
+        h1(text)
       ])
     );
 
@@ -56,25 +80,39 @@ function main({ DOM, HTTP }) {
     HTTP: request$
   };
 }
+
+Cycle.run(main, {
+  DOM: makeDOMDriver('#app'),
+  HTTP: FetchDriver()
+});
+
 ```
 
 Select all the responses for a certain key:
 
 ```js
-function main({ DOM, HTTP }) {
+import Stream from 'xstream';
+import Cycle from '@cycle/run';
+import FetchDriver from '@gastonyte/cycle-fetch-driver';
+import flattenConcurrently from 'xstream/extra/flattenConcurrently';
+import {div, h1, makeDOMDriver} from '@cycle/dom';
+
+const main = ({ HTTP }) => {
+  
   const HELLO_URL = 'http://localhost:8080/hello';
-  const request$ = Rx.Observable.just({
+  const request$ = Stream.of({
     key: 'hello',
     url: HELLO_URL
   });
-  const vtree$ = HTTP
-    .byKey('hello')
-    .mergeAll()
-    .flatMap(res => res.text()) // We expect this to be "Hello World"
+  
+  const vtree$ = HTTP.filterByKey('hello')
+    .compose(flattenConcurrently)
+    .map(res => res.text())
+    .flatten()
     .startWith('Loading...')
     .map(text =>
-      h('div.container', [
-        h('h1', text)
+      div('.container', [
+        h1(text)
       ])
     );
 
@@ -82,5 +120,10 @@ function main({ DOM, HTTP }) {
     DOM: vtree$,
     HTTP: request$
   };
-}
+};
+
+Cycle.run(main, {
+  DOM: makeDOMDriver('#app'),
+  HTTP: FetchDriver()
+});
 ```
