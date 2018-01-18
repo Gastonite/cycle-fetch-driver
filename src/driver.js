@@ -1,53 +1,65 @@
 import Stream from 'xstream';
+import { assert } from 'assert';
 
 const getUrl = ({ input, url }) => (input && input.url) || url;
 
-const coerceRequest = input => {
-
+const normalizeRequest = input => {
   const request = typeof input === 'string'
     ? { url: input }
-    : { ...input };
-
-  if (!request.key)
-    request.key = getUrl(request);
-
-  return request;
+    : { ...input }
+  if (!request.key) {
+    request.key = getUrl(request)
+  }
+  return request
 };
 
-const filterByKey = (response$$, key) => response$$.filter(response$ => response$.request.key === key);
+const byKey = (response$$, key) => {
+  return response$$
+    .filter(response$ => response$.request.key === key)
+};
 
-const filterByUrl = (response$$, url) => response$$.filter(response$ => getUrl(response$.request) === url);
+const byUrl  = (response$$, url) => {
+  return response$$
+    .filter(response$ => getUrl(response$.request) === url)
+};
 
-const FetchDriver = ({ fetch = global.fetch, ...defaultOptions } = {}) => {
+const FetchDriver = ({ fetch = global.fetch, headers, ...defaultOptions } = {}) => {
 
-  return request$ => {
+  return request$ =>  {
 
-    const response$$ = Stream.create({
-      start: listener => {
+    const response$$ = Stream.createWithMemory();
 
-        request$
-          .map(coerceRequest)
-          .addListener({
-            next: request => {
+    request$
+      .map(normalizeRequest)
+      .addListener({
+        next: request => {
 
-              const { input, url, options } = request;
-              const response$ = Stream.fromPromise(fetch(input || url, { ...defaultOptions, ...options }));
+          const { input, url } = request;
+          let { options = {} } = request;
 
-              response$.request = request;
-              listener.next(response$);
-            },
-            error: error => listener.error(response$$, error),
-            complete: out => listener.complete(response$$, out)
-          });
-      },
-      stop: () => {}
-    });
+          const response$ = Stream.fromPromise(
+            fetch(input || url, {
+              ...defaultOptions,
+              ...options,
+              headers: {
+                ...headers,
+                ...(options.headers || {})
+              }
+            })
+          );
 
-    response$$.filterByKey = filterByKey.bind(null, response$$);
-    response$$.filterByUrl = filterByUrl.bind(null, response$$);
+          response$.request = request;
+          response$$.shamefullySendNext(response$);
+        },
+        error: response$$.shamefullySendError.bind(response$$),
+        complete: response$$.shamefullySendComplete.bind(response$$)
+      });
+
+    response$$.byKey = byKey.bind(null, response$$);
+    response$$.byUrl = byUrl.bind(null, response$$);
 
     return response$$
   }
-};
+}
 
 export default FetchDriver;
